@@ -1,4 +1,4 @@
-package com.example.shiro.model;
+package com.example.shiro.common.model;
 
 import org.springframework.http.HttpStatus;
 
