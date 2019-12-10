@@ -7,22 +7,10 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfo;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.baomidou.mybatisplus.core.toolkit.Assert;
-import com.baomidou.mybatisplus.core.toolkit.GlobalConfigUtils;
-import com.baomidou.mybatisplus.core.toolkit.ReflectionKit;
-import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.core.toolkit.*;
 import com.baomidou.mybatisplus.extension.toolkit.SqlHelper;
-import java.io.Serializable;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
 import com.example.shiro.common.service.IService;
-import org.apache.ibatis.binding.MapperMethod.ParamMap;
+import org.apache.ibatis.binding.MapperMethod;
 import org.apache.ibatis.logging.Log;
 import org.apache.ibatis.logging.LogFactory;
 import org.apache.ibatis.session.SqlSession;
@@ -30,269 +18,266 @@ import org.mybatis.spring.SqlSessionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 /**
+ * IService 实现类（ 泛型：M 是 mapper 对象，T 是实体 ， PK 是主键泛型 ）
  * @author tianhao
  * @2019/12/9 0009 20:28
  */
 public class ServiceImpl<M extends BaseMapper<T>, T> implements IService<T> {
-    protected Log log = LogFactory.getLog(this.getClass());
+    protected Log log = LogFactory.getLog(getClass());
+
     @Autowired
     protected M baseMapper;
 
-    public ServiceImpl() {
-    }
-
+    @Override
     public M getBaseMapper() {
-        return this.baseMapper;
+        return baseMapper;
     }
 
+    /**
+     * 判断数据库操作是否成功
+     *
+     * @param result 数据库操作返回影响条数
+     * @return boolean
+     */
     protected boolean retBool(Integer result) {
         return SqlHelper.retBool(result);
     }
 
-    protected Class<?> currentModelClass() {
-        return ReflectionKit.getSuperClassGenericType(this.getClass(), 1);
+    protected Class<T> currentModelClass() {
+        return (Class<T>) ReflectionKit.getSuperClassGenericType(getClass(), 1);
     }
 
+    /**
+     * 批量操作 SqlSession
+     */
     protected SqlSession sqlSessionBatch() {
-        return SqlHelper.sqlSessionBatch(this.currentModelClass());
+        return SqlHelper.sqlSessionBatch(currentModelClass());
     }
 
+    /**
+     * 释放sqlSession
+     *
+     * @param sqlSession session
+     */
     protected void closeSqlSession(SqlSession sqlSession) {
-        SqlSessionUtils.closeSqlSession(sqlSession, GlobalConfigUtils.currentSessionFactory(this.currentModelClass()));
+        SqlSessionUtils.closeSqlSession(sqlSession, GlobalConfigUtils.currentSessionFactory(currentModelClass()));
     }
 
+    /**
+     * 获取 SqlStatement
+     *
+     * @param sqlMethod ignore
+     * @return ignore
+     */
     protected String sqlStatement(SqlMethod sqlMethod) {
-        return SqlHelper.table(this.currentModelClass()).getSqlStatement(sqlMethod.getMethod());
+        return SqlHelper.table(currentModelClass()).getSqlStatement(sqlMethod.getMethod());
     }
 
-    public boolean save(T entity) {
-        return this.retBool(this.baseMapper.insert(entity));
+    @Override
+    public T save(T entity) {
+        baseMapper.insert(entity);
+        return entity;
     }
 
-    @Transactional(
-            rollbackFor = {Exception.class}
-    )
+    /**
+     * 批量插入
+     *
+     * @param entityList ignore
+     * @param batchSize  ignore
+     * @return ignore
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
     public boolean saveBatch(Collection<T> entityList, int batchSize) {
-        String sqlStatement = this.sqlStatement(SqlMethod.INSERT_ONE);
-        SqlSession batchSqlSession = this.sqlSessionBatch();
-        Throwable var5 = null;
-
-        try {
+        String sqlStatement = sqlStatement(SqlMethod.INSERT_ONE);
+        try (SqlSession batchSqlSession = sqlSessionBatch()) {
             int i = 0;
-
-            for(Iterator var7 = entityList.iterator(); var7.hasNext(); ++i) {
-                T anEntityList = (T)var7.next();
+            for (T anEntityList : entityList) {
                 batchSqlSession.insert(sqlStatement, anEntityList);
                 if (i >= 1 && i % batchSize == 0) {
                     batchSqlSession.flushStatements();
                 }
+                i++;
             }
-
             batchSqlSession.flushStatements();
-            return true;
-        } catch (Throwable var16) {
-            var5 = var16;
-            throw var16;
-        } finally {
-            if (batchSqlSession != null) {
-                if (var5 != null) {
-                    try {
-                        batchSqlSession.close();
-                    } catch (Throwable var15) {
-                        var5.addSuppressed(var15);
-                    }
-                } else {
-                    batchSqlSession.close();
-                }
-            }
-
         }
+        return true;
     }
 
-    @Transactional(
-            rollbackFor = {Exception.class}
-    )
-    public boolean saveOrUpdate(T entity) {
-        if (null == entity) {
-            return false;
-        } else {
+    /**
+     * TableId 注解存在更新记录，否插入一条记录
+     *
+     * @param entity 实体对象
+     * @return boolean
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public T saveOrUpdate(T entity) {
+        if (null != entity) {
             Class<?> cls = entity.getClass();
             TableInfo tableInfo = TableInfoHelper.getTableInfo(cls);
-            Assert.notNull(tableInfo, "error: can not execute. because can not find cache of TableInfo for entity!", new Object[0]);
+            Assert.notNull(tableInfo, "error: can not execute. because can not find cache of TableInfo for entity!");
             String keyProperty = tableInfo.getKeyProperty();
-            Assert.notEmpty(keyProperty, "error: can not execute. because can not find column for id from entity!", new Object[0]);
+            Assert.notEmpty(keyProperty, "error: can not execute. because can not find column for id from entity!");
             Object idVal = ReflectionKit.getMethodValue(cls, entity, tableInfo.getKeyProperty());
-            return !StringUtils.checkValNull(idVal) && !Objects.isNull(this.getById((Serializable)idVal)) ? this.updateById(entity) : this.save(entity);
+            return StringUtils.checkValNull(idVal) || Objects.isNull(getById((Serializable) idVal)) ? save(entity) : updateById(entity);
         }
+        return null;
     }
 
-    @Transactional(
-            rollbackFor = {Exception.class}
-    )
+    @Transactional(rollbackFor = Exception.class)
+    @Override
     public boolean saveOrUpdateBatch(Collection<T> entityList, int batchSize) {
-        Assert.notEmpty(entityList, "error: entityList must not be empty", new Object[0]);
-        Class<?> cls = this.currentModelClass();
+        Assert.notEmpty(entityList, "error: entityList must not be empty");
+        Class<?> cls = currentModelClass();
         TableInfo tableInfo = TableInfoHelper.getTableInfo(cls);
-        Assert.notNull(tableInfo, "error: can not execute. because can not find cache of TableInfo for entity!", new Object[0]);
+        Assert.notNull(tableInfo, "error: can not execute. because can not find cache of TableInfo for entity!");
         String keyProperty = tableInfo.getKeyProperty();
-        Assert.notEmpty(keyProperty, "error: can not execute. because can not find column for id from entity!", new Object[0]);
-        SqlSession batchSqlSession = this.sqlSessionBatch();
-        Throwable var7 = null;
-
-        try {
+        Assert.notEmpty(keyProperty, "error: can not execute. because can not find column for id from entity!");
+        try (SqlSession batchSqlSession = sqlSessionBatch()) {
             int i = 0;
-
-            for(Iterator var9 = entityList.iterator(); var9.hasNext(); ++i) {
-                T entity = (T)var9.next();
+            for (T entity : entityList) {
                 Object idVal = ReflectionKit.getMethodValue(cls, entity, keyProperty);
-                if (!StringUtils.checkValNull(idVal) && !Objects.isNull(this.getById((Serializable)idVal))) {
-                    ParamMap<T> param = new ParamMap();
-                    param.put("et", entity);
-                    batchSqlSession.update(this.sqlStatement(SqlMethod.UPDATE_BY_ID), param);
+                if (StringUtils.checkValNull(idVal) || Objects.isNull(getById((Serializable) idVal))) {
+                    batchSqlSession.insert(sqlStatement(SqlMethod.INSERT_ONE), entity);
                 } else {
-                    batchSqlSession.insert(this.sqlStatement(SqlMethod.INSERT_ONE), entity);
+                    MapperMethod.ParamMap<T> param = new MapperMethod.ParamMap<>();
+                    param.put(Constants.ENTITY, entity);
+                    batchSqlSession.update(sqlStatement(SqlMethod.UPDATE_BY_ID), param);
                 }
-
+                // 不知道以后会不会有人说更新失败了还要执行插入 😂😂😂
                 if (i >= 1 && i % batchSize == 0) {
                     batchSqlSession.flushStatements();
                 }
+                i++;
             }
-
             batchSqlSession.flushStatements();
-            return true;
-        } catch (Throwable var20) {
-            var7 = var20;
-            throw var20;
-        } finally {
-            if (batchSqlSession != null) {
-                if (var7 != null) {
-                    try {
-                        batchSqlSession.close();
-                    } catch (Throwable var19) {
-                        var7.addSuppressed(var19);
-                    }
-                } else {
-                    batchSqlSession.close();
-                }
-            }
-
         }
+        return true;
     }
 
+    @Override
     public boolean removeById(Serializable id) {
-        return SqlHelper.retBool(this.baseMapper.deleteById(id));
+        return SqlHelper.retBool(baseMapper.deleteById(id));
     }
 
+    @Override
     public boolean removeByMap(Map<String, Object> columnMap) {
-        Assert.notEmpty(columnMap, "error: columnMap must not be empty", new Object[0]);
-        return SqlHelper.retBool(this.baseMapper.deleteByMap(columnMap));
+        Assert.notEmpty(columnMap, "error: columnMap must not be empty");
+        return SqlHelper.retBool(baseMapper.deleteByMap(columnMap));
     }
 
+    @Override
     public boolean remove(Wrapper<T> wrapper) {
-        return SqlHelper.retBool(this.baseMapper.delete(wrapper));
+        return SqlHelper.retBool(baseMapper.delete(wrapper));
     }
 
+    @Override
     public boolean removeByIds(Collection<? extends Serializable> idList) {
-        return SqlHelper.retBool(this.baseMapper.deleteBatchIds(idList));
+        return SqlHelper.retBool(baseMapper.deleteBatchIds(idList));
     }
 
-    public boolean updateById(T entity) {
-        return this.retBool(this.baseMapper.updateById(entity));
+    @Override
+    public T updateById(T entity) {
+        baseMapper.updateById(entity);
+        return entity;
     }
 
+    @Override
     public boolean update(T entity, Wrapper<T> updateWrapper) {
-        return this.retBool(this.baseMapper.update(entity, updateWrapper));
+        return retBool(baseMapper.update(entity, updateWrapper));
     }
 
-    @Transactional(
-            rollbackFor = {Exception.class}
-    )
+    @Transactional(rollbackFor = Exception.class)
+    @Override
     public boolean updateBatchById(Collection<T> entityList, int batchSize) {
-        Assert.notEmpty(entityList, "error: entityList must not be empty", new Object[0]);
-        String sqlStatement = this.sqlStatement(SqlMethod.UPDATE_BY_ID);
-        SqlSession batchSqlSession = this.sqlSessionBatch();
-        Throwable var5 = null;
-
-        try {
+        Assert.notEmpty(entityList, "error: entityList must not be empty");
+        String sqlStatement = sqlStatement(SqlMethod.UPDATE_BY_ID);
+        try (SqlSession batchSqlSession = sqlSessionBatch()) {
             int i = 0;
-
-            for(Iterator var7 = entityList.iterator(); var7.hasNext(); ++i) {
-                T anEntityList = (T)var7.next();
-                ParamMap<T> param = new ParamMap();
-                param.put("et", anEntityList);
+            for (T anEntityList : entityList) {
+                MapperMethod.ParamMap<T> param = new MapperMethod.ParamMap<>();
+                param.put(Constants.ENTITY, anEntityList);
                 batchSqlSession.update(sqlStatement, param);
                 if (i >= 1 && i % batchSize == 0) {
                     batchSqlSession.flushStatements();
                 }
+                i++;
             }
-
             batchSqlSession.flushStatements();
-            return true;
-        } catch (Throwable var17) {
-            var5 = var17;
-            throw var17;
-        } finally {
-            if (batchSqlSession != null) {
-                if (var5 != null) {
-                    try {
-                        batchSqlSession.close();
-                    } catch (Throwable var16) {
-                        var5.addSuppressed(var16);
-                    }
-                } else {
-                    batchSqlSession.close();
-                }
-            }
-
         }
+        return true;
     }
 
+    @Override
     public T getById(Serializable id) {
-        return this.baseMapper.selectById(id);
+        return baseMapper.selectById(id);
     }
 
+    @Override
     public Collection<T> listByIds(Collection<? extends Serializable> idList) {
-        return this.baseMapper.selectBatchIds(idList);
+        return baseMapper.selectBatchIds(idList);
     }
 
+    @Override
     public Collection<T> listByMap(Map<String, Object> columnMap) {
-        return this.baseMapper.selectByMap(columnMap);
+        return baseMapper.selectByMap(columnMap);
     }
 
+    @Override
     public T getOne(Wrapper<T> queryWrapper, boolean throwEx) {
-        return throwEx ? this.baseMapper.selectOne(queryWrapper) : SqlHelper.getObject(this.log, this.baseMapper.selectList(queryWrapper));
+        if (throwEx) {
+            return baseMapper.selectOne(queryWrapper);
+        }
+        return SqlHelper.getObject(log, baseMapper.selectList(queryWrapper));
     }
 
+    @Override
     public Map<String, Object> getMap(Wrapper<T> queryWrapper) {
-        return (Map)SqlHelper.getObject(this.log, this.baseMapper.selectMaps(queryWrapper));
+        return SqlHelper.getObject(log, baseMapper.selectMaps(queryWrapper));
     }
 
+    @Override
     public int count(Wrapper<T> queryWrapper) {
-        return SqlHelper.retCount(this.baseMapper.selectCount(queryWrapper));
+        return SqlHelper.retCount(baseMapper.selectCount(queryWrapper));
     }
 
+    @Override
     public List<T> list(Wrapper<T> queryWrapper) {
-        return this.baseMapper.selectList(queryWrapper);
+        return baseMapper.selectList(queryWrapper);
     }
 
+    @Override
     public IPage<T> page(IPage<T> page, Wrapper<T> queryWrapper) {
-        return this.baseMapper.selectPage(page, queryWrapper);
+        return baseMapper.selectPage(page, queryWrapper);
     }
 
+    @Override
     public List<Map<String, Object>> listMaps(Wrapper<T> queryWrapper) {
-        return this.baseMapper.selectMaps(queryWrapper);
+        return baseMapper.selectMaps(queryWrapper);
     }
 
+    @Override
     public <V> List<V> listObjs(Wrapper<T> queryWrapper, Function<? super Object, V> mapper) {
-        return (List)this.baseMapper.selectObjs(queryWrapper).stream().filter(Objects::nonNull).map(mapper).collect(Collectors.toList());
+        return baseMapper.selectObjs(queryWrapper).stream().filter(Objects::nonNull).map(mapper).collect(Collectors.toList());
     }
 
+    @Override
     public IPage<Map<String, Object>> pageMaps(IPage<T> page, Wrapper<T> queryWrapper) {
-        return this.baseMapper.selectMapsPage(page, queryWrapper);
+        return baseMapper.selectMapsPage(page, queryWrapper);
     }
 
+    @Override
     public <V> V getObj(Wrapper<T> queryWrapper, Function<? super Object, V> mapper) {
-        return SqlHelper.getObject(this.log, this.listObjs(queryWrapper, mapper));
+        return SqlHelper.getObject(log, listObjs(queryWrapper, mapper));
     }
 }
