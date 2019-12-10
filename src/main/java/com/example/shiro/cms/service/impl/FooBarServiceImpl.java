@@ -22,7 +22,7 @@ import java.io.Serializable;
  * @since 2019-12-09
  */
 @Service
-@CacheConfig(cacheNames = "com.shiro.cms.foobar")
+@CacheConfig(cacheNames = "com.shiro.cms.foobar", cacheManager = "redisCacheManager")
 public class FooBarServiceImpl extends ServiceImpl<FooBarMapper, FooBar> implements IFooBarService {
 
 

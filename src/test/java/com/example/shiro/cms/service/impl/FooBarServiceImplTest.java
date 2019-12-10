@@ -22,9 +22,10 @@ public class FooBarServiceImplTest {
 	@Test
 	public void test(){
 		FooBar fooBar = iFooBarService.getById(1);
-		fooBar.setBar("hhhh");
-		iFooBarService.save(fooBar);
+//		fooBar.setBar("hhhh");
+//		iFooBarService.save(fooBar);
 		System.out.println(fooBar);
+		System.out.println(iFooBarService.getById(1));
 	}
 
 	@Test
