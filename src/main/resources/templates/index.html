@@ -1,7 +1,45 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html xmlns:th="http://www.thymeleaf.org" xmlns:shiro="http://www.pollix.at/thymeleaf/shiro">
 <head>
+    <title>i-admin-v1.0 后台管理系统 - 首页</title>
     <meta charset="UTF-8">
-    <title>Hello Thymeleaf</title></head>
-<body><h1 th:text="${hello}">Hello Thymeleaf</h1></body>
+    <link th:href="@{/css/bootstrap.css}" rel="stylesheet"/>
+</head>
+<body>
+<!--头部区域-->
+<nav class="navbar navbar-default">
+    <div class="container-fluid">
+        <div class="navbar-header">
+            <a class="navbar-brand" href="#">i-admin-v1.0 后台管理系统</a>
+        </div>
+        <div>
+            <ul class="nav navbar-nav navbar-right">
+                <li class="dropdown">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown">
+                        系统管理员<b class="caret"></b>
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li>
+                            <a th:href="@{/logout}">退出</a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+<div>
+
+    <shiro:hasPermission name="cms:fooBar:view">
+        <a th:href="@{/cms/news/view}" class="btn btn-default" target="_blank">新闻详情</a>
+    </shiro:hasPermission>
+
+    <shiro:hasPermission name="cms:fooBar:list">
+        <a th:href="@{/cms/news/list}" class="btn btn-default" target="_blank">新闻列表</a>
+    </shiro:hasPermission>
+</div>
+
+<script th:src="@{/js/jquery.js}"></script>
+<script th:src="@{/js/bootstrap.js}"></script>
+</body>
 </html>
